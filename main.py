@@ -49,59 +49,103 @@ def main():
     con = sqlite3.connect(TRANSFORMED_DB_PATH)
     cur = con.cursor()
     
-    # Transformations
+    ### Transformations
     
-    # Clean company name
+    ## Clean company name and resolve duplicates
+    
     # Trim whitespace from entries
     cur.execute('UPDATE company SET name = TRIM(name)')
     
-    # res = cur.execute('SELECT * FROM company GROUP BY name HAVING COUNT(*) > 1')
-    # for row in res:
-    #     print(row)
-    min_company_id = 'SELECT MIN(id) FROM company GROUP BY name ORDER BY MIN(id)'
-    
-    # res = cur.execute(f'SELECT * FROM job WHERE company_id NOT IN ({min_company_id})')
-    # res = cur.execute(test)
-    # for row in res:
-    #     print(row)
-    
-    # Create table containing id mappings for duplicatess
+    # Create table containing id mappings for duplicates
     cur.execute('''CREATE TABLE company_id_map AS
-                SELECT tab2.id AS old_id, tab1.min_id AS new_id
-                FROM (SELECT MIN(id) AS min_id, name FROM company GROUP BY name) tab1
-                INNER JOIN company tab2 
-                ON tab1.name = tab2.name'''
+                SELECT company.id AS old_id, min_id_tab.min_id AS new_id
+                FROM 
+                    (SELECT MIN(id) AS min_id, name 
+                    FROM company 
+                    GROUP BY name) min_id_tab
+                INNER JOIN company
+                ON min_id_tab.name = company.name'''
+    )
+        
+    # Update company id in jobs table based on id mapping
+    cur.execute('''UPDATE job
+                SET company_id = tab1.new_id
+                FROM
+                    (SELECT company_id, new_id FROM job
+                    INNER JOIN company_id_map
+                    ON job.company_id = company_id_map.old_id
+                    WHERE job.company_id <> company_id_map.new_id) tab1
+                WHERE job.company_id = tab1.company_id
+                '''
     )
     
-    res = cur.execute('SELECT * FROM company_id_map')
-    for row in res:
-        print(row)
-    
-    # Test deletion
-    cur.execute(f'DELETE FROM company WHERE id NOT IN ({min_company_id})')
-    res = cur.execute('SELECT * FROM company')
+    # # DEBUG
+    # res = cur.execute('''SELECT company_id, new_id FROM job
+    #                 INNER JOIN company_id_map
+    #                 ON job.company_id = company_id_map.old_id
+    #                 WHERE job.company_id <> company_id_map.new_id''')
+    # for row in res:
+    #     print(row)
+    # res = cur.execute('SELECT * FROM job WHERE company_id NOT IN (SELECT MIN(id) FROM company GROUP BY name)')
+    # for row in res:
+    #     print(row)
+    # res = cur.execute('SELECT * FROM job WHERE id = 1198')
     # for row in res:
     #     print(row)
     
-    # Clean job title
-    clean_title_query = 'SELECT REPLACE(REPLACE(title, "\t", ""), "\n", "") FROM job'
-    res = cur.execute(clean_title_query)
+    # Delete duplicated companies
+    min_company_id = '''SELECT MIN(id)
+                        FROM company 
+                        GROUP BY name 
+                        '''
+
+    cur.execute(f'''DELETE FROM company 
+                WHERE id 
+                NOT IN ({min_company_id})''')
+    
+    # # DEBUG
+    # res = cur.execute('SELECT * FROM company')
     # for row in res:
     #     print(row)
     
-    # Clean location
-    clean_location_query = 'SELECT REPLACE(location, "Location ", "") FROM job'
-    res = cur.execute(clean_location_query)
+    ## Clean job title
+    
+    clean_title_query = '''UPDATE job
+                        SET title = REPLACE(REPLACE(title, "\t", ""), "\n", "") 
+                        '''
+    cur.execute(clean_title_query)
+    
+    # # DEBUG
+    # res = cur.execute('SELECT title FROM job WHERE website_id = 2')
     # for row in res:
     #     print(row)
     
-    # Clean pay
-    clean_pay_query = 'SELECT REPLACE(REPLACE(pay, "Salary ", ""), "   + benefits ", "") FROM job'
-    res = cur.execute(clean_pay_query)
+    ## Clean location
+    
+    clean_location_query = '''UPDATE job
+                            SET location = REPLACE(location, "Location ", "")
+                            '''
+    cur.execute(clean_location_query)
+    
+    # # DEBUG
+    # res = cur.execute('SELECT location FROM job WHERE website_id = 2')
+    # for row in res:
+    #     print(row)
+    
+    ## Clean pay
+    
+    clean_pay_query = '''UPDATE job
+                        SET pay = TRIM(REPLACE(REPLACE(pay, "Salary", ""), "+ benefits", ""))
+                        '''
+    cur.execute(clean_pay_query)
+    
+    # # DEBUG
+    # res = cur.execute('SELECT pay FROM job')
     # for row in res:
     #     print(row)
 
-    # Clean job description
+    ## Clean job description
+    
     # Remove linebreaks and non-breaking spaces
     desc_replace_n = 'REPLACE(description, "\n", " ")'
     desc_replace_xa0 = f'REPLACE({desc_replace_n}, "\xa0", "")'
@@ -113,19 +157,27 @@ def main():
     desc_replace_pauseplay = f'REGEXP_REPLACE({desc_replace_gc_pledge}, "PausePlay.*fullscreen", "")'
     # Strip whitespace
     desc_strip_whitespace = f'TRIM({desc_replace_pauseplay})'
+    # Remove excess whitespaces from inside description
+    desc_replace_whitespace = f'REGEXP_REPLACE({desc_strip_whitespace}, "\\s\\s+", " ")'
     # Run query
-    clean_desc_query = f'SELECT {desc_strip_whitespace} FROM job LIMIT 10'
-    res = cur.execute(clean_desc_query)
+    clean_desc_query = f'''UPDATE job 
+                        SET description = {desc_replace_whitespace}
+                        '''
+    cur.execute(clean_desc_query)
+    
+    # # DEBUG
+    # res = cur.execute('SELECT description FROM job')
     # for row in res:
     #     print(row)
     
-    # Check for duplicates
+    ## Check for duplicates
+    
     dupe_query = 'SELECT COUNT(*) AS count, website_id, company_id, title, location, pay, description FROM job GROUP BY company_id, title, location, pay, description HAVING COUNT(*) > 1'
     res = cur.execute(dupe_query)
-    # for row in res:
-    #     print(row)
+    for row in res:
+        print(row)
         
-    test_query = 'SELECT * FROM job WHERE company_id = 14'
+    test_query = 'SELECT name FROM company WHERE id = 95'
     res = cur.execute(test_query)
     # for row in res:
     #     print(row)
