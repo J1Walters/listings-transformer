@@ -34,7 +34,7 @@ def main():
     )
     con.commit()
     con.close()
-    
+
     # Open connection to original database and copy data
     con = sqlite3.connect(OG_DB_PATH)
     cur = con.cursor()
@@ -44,18 +44,18 @@ def main():
     cur.execute('INSERT INTO new_db.job SELECT * FROM job')
     con.commit()
     con.close()
-    
+
     # Re-open connection to transformed database
     con = sqlite3.connect(TRANSFORMED_DB_PATH)
     cur = con.cursor()
-    
+
     ### Transformations
-    
+
     ## Clean company name and resolve duplicates
-    
+    print('Cleaning company table...')
     # Trim whitespace from entries
     cur.execute('UPDATE company SET name = TRIM(name)')
-    
+
     # Create table containing id mappings for duplicates
     cur.execute('''CREATE TABLE company_id_map AS
                 SELECT company.id AS old_id, min_id_tab.min_id AS new_id
@@ -66,19 +66,19 @@ def main():
                 INNER JOIN company
                 ON min_id_tab.name = company.name'''
     )
-        
+
     # Update company id in jobs table based on id mapping
     cur.execute('''UPDATE job
-                SET company_id = tab1.new_id
+                SET company_id = id_map.new_id
                 FROM
                     (SELECT company_id, new_id FROM job
                     INNER JOIN company_id_map
                     ON job.company_id = company_id_map.old_id
-                    WHERE job.company_id <> company_id_map.new_id) tab1
-                WHERE job.company_id = tab1.company_id
+                    WHERE job.company_id <> company_id_map.new_id) id_map
+                WHERE job.company_id = id_map.company_id
                 '''
     )
-    
+
     # # DEBUG
     # res = cur.execute('''SELECT company_id, new_id FROM job
     #                 INNER JOIN company_id_map
@@ -92,60 +92,63 @@ def main():
     # res = cur.execute('SELECT * FROM job WHERE id = 1198')
     # for row in res:
     #     print(row)
-    
+
     # Delete duplicated companies
     min_company_id = '''SELECT MIN(id)
                         FROM company 
                         GROUP BY name 
                         '''
 
-    cur.execute(f'''DELETE FROM company 
+    cur.execute(f'''DELETE FROM company
                 WHERE id 
                 NOT IN ({min_company_id})''')
-    
+
     # # DEBUG
     # res = cur.execute('SELECT * FROM company')
     # for row in res:
     #     print(row)
-    
+
+    # Delete mapping table
+    cur.execute('DROP TABLE company_id_map')
+
     ## Clean job title
-    
+    print('Cleaning job title...')
     clean_title_query = '''UPDATE job
                         SET title = REPLACE(REPLACE(title, "\t", ""), "\n", "") 
                         '''
     cur.execute(clean_title_query)
-    
+
     # # DEBUG
     # res = cur.execute('SELECT title FROM job WHERE website_id = 2')
     # for row in res:
     #     print(row)
-    
+
     ## Clean location
-    
+    print('Cleaning job location...')
     clean_location_query = '''UPDATE job
                             SET location = REPLACE(location, "Location ", "")
                             '''
     cur.execute(clean_location_query)
-    
+
     # # DEBUG
     # res = cur.execute('SELECT location FROM job WHERE website_id = 2')
     # for row in res:
     #     print(row)
-    
+
     ## Clean pay
-    
+    print('Cleaning job pay...')
     clean_pay_query = '''UPDATE job
                         SET pay = TRIM(REPLACE(REPLACE(pay, "Salary", ""), "+ benefits", ""))
                         '''
     cur.execute(clean_pay_query)
-    
+
     # # DEBUG
     # res = cur.execute('SELECT pay FROM job')
     # for row in res:
     #     print(row)
 
     ## Clean job description
-    
+    print('Cleaning job description...')
     # Remove linebreaks and non-breaking spaces
     desc_replace_n = 'REPLACE(description, "\n", " ")'
     desc_replace_xa0 = f'REPLACE({desc_replace_n}, "\xa0", "")'
@@ -160,29 +163,64 @@ def main():
     # Remove excess whitespaces from inside description
     desc_replace_whitespace = f'REGEXP_REPLACE({desc_strip_whitespace}, "\\s\\s+", " ")'
     # Run query
-    clean_desc_query = f'''UPDATE job 
+    clean_desc_query = f'''UPDATE job
                         SET description = {desc_replace_whitespace}
                         '''
     cur.execute(clean_desc_query)
-    
+
     # # DEBUG
     # res = cur.execute('SELECT description FROM job')
     # for row in res:
     #     print(row)
-    
+
     ## Check for duplicates
-    
-    dupe_query = 'SELECT COUNT(*) AS count, website_id, company_id, title, location, pay, description FROM job GROUP BY company_id, title, location, pay, description HAVING COUNT(*) > 1'
-    res = cur.execute(dupe_query)
-    for row in res:
-        print(row)
-        
-    test_query = 'SELECT name FROM company WHERE id = 95'
-    res = cur.execute(test_query)
+    print('Removing duplicate jobs...')
+
+    min_listing_id = '''SELECT MIN(id)
+                        FROM job 
+                        GROUP BY company_id, title, location, pay, description
+                        '''
+
+    # # DEBUG
+    # res = cur.execute(min_listing_id)
     # for row in res:
     #     print(row)
 
+    duplicates = f'''SELECT id
+                    FROM job 
+                    WHERE id NOT IN ({min_listing_id})
+                    '''
 
+    # # DEBUG
+    # res = cur.execute(duplicates)
+    # for row in res:
+    #     print(row)
+
+    res = cur.execute(f'SELECT COUNT(*) FROM ({duplicates})')
+    num_duplicates = res.fetchone()[0]
+
+    print(f'Number of duplicates: {num_duplicates}')
+
+    # Remove duplicates
+    remove_duplicates = f'''DELETE FROM job
+                        WHERE id IN ({duplicates})
+                        '''
+
+    cur.execute(remove_duplicates)
+
+    ## Print number of remaining entries
+    print('Finished.')
+
+    res = cur.execute('SELECT COUNT(*) FROM job')
+    num_entries = res.fetchone()[0]
+
+    print(f'Remaining Entries: {num_entries}')
+
+    ## Commit changes
+    con.commit()
+
+    ## Close connection
+    con.close()
 
 if __name__ == '__main__':
     main()
