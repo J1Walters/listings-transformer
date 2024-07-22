@@ -130,6 +130,19 @@ def main():
                             '''
     cur.execute(clean_location_query)
 
+    # Remove entries where locations are known to be in foreign places
+    known_foreign_locations = r'JAPAN|CHINA|SWITZERLAND|^BUDAPEST'
+    remove_foreign_jobs_query = f'''SELECT location
+                                FROM job
+                                WHERE UPPER(location)
+                                REGEXP "{known_foreign_locations}"
+                                '''
+
+    # DEBUG
+    res = cur.execute(remove_foreign_jobs_query)
+    for row in res:
+        print(row)
+
     # # DEBUG
     # res = cur.execute('SELECT location FROM job WHERE website_id = 2')
     # for row in res:
