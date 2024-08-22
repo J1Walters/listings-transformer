@@ -131,7 +131,7 @@ def main():
     cur.execute(clean_location_query)
 
     # Remove entries where locations are known to be in foreign places
-    known_foreign_locations = r'JAPAN|CHINA|SWITZERLAND|^BUDAPEST'
+    known_foreign_locations = r'JAPAN|CHINA|SWITZERLAND|^BUDAPEST|POLAND'
     remove_foreign_jobs_query = f'''DELETE
                                 FROM job
                                 WHERE UPPER(location)
