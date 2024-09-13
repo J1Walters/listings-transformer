@@ -51,6 +51,19 @@ def main():
 
     ### Transformations
 
+    ## Delete entries where description is NULL
+    print('Deleting null values...')
+    cur.execute('''DELETE FROM job
+                WHERE description == "NULL"
+                ''')
+
+    # # DEBUG
+    # res = cur.execute('''SELECT id, description FROM job
+    #                       WHERE description == "NULL"
+    #                   ''')
+    # for row in res:
+    #     print(row)
+
     ## Clean company name and resolve duplicates
     print('Cleaning company table...')
     # Trim whitespace from entries
